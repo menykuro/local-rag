@@ -32,7 +32,7 @@ start cmd /k "cd backend && call ..\.venv\Scripts\activate.bat && python -m uvic
 REM Abrir frontend en terminal separada
 timeout /t 3 /nobreak
 echo Iniciando frontend...
-start cmd /k "cd frontend && call ..\.venv\Scripts\activate.bat && reflex run"
+start cmd /k "cd frontend && call ..\.venv\Scripts\activate.bat && reflex run --backend-port 8001"
 
 echo.
 echo Backend y frontend lanzados en terminales separadas.

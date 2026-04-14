@@ -209,3 +209,10 @@ __marimo__/
 # Reflex (Frontend)
 .web/
 .states/
+
+# Local RAG Data & Models
+data/models/
+data/vector.index
+data/*.json
+data/documents/*
+
