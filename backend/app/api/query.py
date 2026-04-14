@@ -47,11 +47,12 @@ async def search(request: QueryRequest):
     context = "\n".join([r['text'] for r in results])
     sources_list = [f"{r['source']}" for r in results]
     
-    answer = f'[{request.model}] Based on local context:\n{context[:100]}...\nGenerative answer for: {request.query}'
+    # Generar la respuesta real con el motor Qwen
+    answer = rag.instance.generate_answer(request.query, context)
     
     return {
-        'answer': answer, 
-        'sources': sources_list, 
+        'answer': f'[{request.model}] {answer}', 
+        'sources': list(set(sources_list)), 
         'used_web': False,
         'scores': scores
     }
