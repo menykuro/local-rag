@@ -51,12 +51,7 @@ class State(rx.State):
         self.is_processing = False
         yield
 
-    async def handle_key_down(self, key: str):
-        """Captura Enter para scrollear y enviar la pregunta."""
-        if key == "Enter":
-            return [rx.call_script(SCROLL_BOTTOM_JS), State.handle_submit_query]
-
-    async def handle_submit_query(self):
+    async def handle_submit_query(self, form_data: dict = None):
         """Envía la pregunta al backend con streaming SSE."""
         if not self.current_question.strip():
             return

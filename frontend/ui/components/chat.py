@@ -20,33 +20,37 @@ def chat_interface() -> rx.Component:
         ),
         # ── Input fijo en la parte inferior, FUERA del área de scroll ─
         rx.box(
-            rx.hstack(
-                rx.input(
-                    placeholder="Pregunta algo sobre tus documentos...",
-                    value=State.current_question,
-                    on_change=State.set_current_question,
-                    on_key_down=State.handle_key_down,
-                    width="100%",
-                    size="3",
-                    radius="full",
-                    disabled=State.is_processing,
-                ),
-                rx.button(
-                    rx.cond(
-                        State.is_processing,
-                        rx.spinner(size="3"),
-                        rx.icon("send", size=18),
+            rx.form(
+                rx.hstack(
+                    rx.input(
+                        placeholder="Pregunta algo sobre tus documentos...",
+                        value=State.current_question,
+                        on_change=State.set_current_question,
+                        width="100%",
+                        size="3",
+                        radius="full",
+                        disabled=State.is_processing,
                     ),
-                    on_click=[rx.call_script(SCROLL_BOTTOM_JS), State.handle_submit_query],
-                    size="3",
-                    radius="full",
-                    cursor="pointer",
-                    disabled=State.is_processing,
+                    rx.button(
+                        rx.cond(
+                            State.is_processing,
+                            rx.spinner(size="3"),
+                            rx.icon("send", size=18),
+                        ),
+                        type="submit",
+                        size="3",
+                        radius="full",
+                        cursor="pointer",
+                        disabled=State.is_processing,
+                    ),
+                    align_items="center",
+                    spacing="3",
+                    width="80%",
+                    margin_x="auto",
                 ),
-                align_items="center",
-                spacing="3",
-                width="80%",
-                margin_x="auto",
+                on_submit=[rx.call_script(SCROLL_BOTTOM_JS), State.handle_submit_query],
+                reset_on_submit=False,
+                width="100%",
             ),
             padding_x="20px",
             padding_y="16px",
