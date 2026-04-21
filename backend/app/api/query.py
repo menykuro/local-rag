@@ -12,6 +12,7 @@ class QueryRequest(BaseModel):
     top_k: int = settings.top_k
     mode: str = settings.default_mode
     model: str = settings.default_model
+    history: list = []
 
 class QueryResult(BaseModel):
     answer: str
@@ -32,24 +33,20 @@ async def search(request: QueryRequest):
     # RAG mode
     results, scores = rag.instance.search(request.query, request.top_k)
     
-    if not results:
+    if not results or (scores and scores[0] < 0.50):
+        answer = rag.instance.generate_answer(request.query, "", is_fallback=True, history=request.history)
         return {
-            'answer': f'[{request.model}] No local context found. Fallback or generic response for: {request.query}',
-            'sources': [],
+            'answer': answer,
+            'sources': ['📡 Base de Conocimiento Interna (LLM)'],
             'used_web': False,
-            'scores': []
+            'scores': scores
         }
-    
-    # Check threshold using the first (best) score
-    if scores and scores[0] < settings.relevance_threshold:
-        # Based on AC3/AC4 logic, if score < threshold, maybe warn or fallback
-        pass
         
     context = "\n".join([r['text'] for r in results])
     sources_list = [f"{r['source']}" for r in results]
     
     # Generar la respuesta real con el motor Qwen
-    answer = rag.instance.generate_answer(request.query, context)
+    answer = rag.instance.generate_answer(request.query, context, history=request.history)
     
     return {
         'answer': f'[{request.model}] {answer}', 
@@ -67,16 +64,21 @@ async def search_stream(request: QueryRequest):
     results, scores = rag.instance.search(request.query, request.top_k)
     sources_list = list(set(r['source'] for r in results)) if results else []
 
-    if not results:
-        async def no_context():
-            yield f"data: {json.dumps({'token': 'No se encontró contexto relevante para tu pregunta.', 'done': True, 'sources': []})}\n\n"
-        return StreamingResponse(no_context(), media_type="text/event-stream")
+    if not results or (scores and scores[0] < 0.50):
+        async def fallback_generator():
+            try:
+                for token in rag.instance.generate_answer_stream(request.query, "", is_fallback=True, history=request.history):
+                    yield f"data: {json.dumps({'token': token, 'done': False, 'sources': []})}\n\n"
+                yield f"data: {json.dumps({'token': '', 'done': True, 'sources': ['📡 Base de Conocimiento Interna (LLM)']})}\n\n"
+            except Exception as e:
+                yield f"data: {json.dumps({'token': f'[Error]: {str(e)}', 'done': True, 'sources': []})}\n\n"
+        return StreamingResponse(fallback_generator(), media_type="text/event-stream")
 
     context = "\n".join([r['text'] for r in results])
 
     async def token_generator():
         try:
-            for token in rag.instance.generate_answer_stream(request.query, context):
+            for token in rag.instance.generate_answer_stream(request.query, context, history=request.history):
                 yield f"data: {json.dumps({'token': token, 'done': False, 'sources': []})}\n\n"
             # Señal final con las fuentes
             yield f"data: {json.dumps({'token': '', 'done': True, 'sources': sources_list})}\n\n"

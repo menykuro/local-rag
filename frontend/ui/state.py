@@ -63,12 +63,25 @@ class State(rx.State):
         self.is_processing = True
         yield
 
+        history_payload = []
+        # Enviar últimos 6 mensajes válidos ignorando el saludo inicial[0] y los 2 recién añadidos[-2]
+        for msg in self.chat_history[1:-2][-6:]:
+            if "⚠️ Error" in msg["content"]: continue
+            # Limpiamos la firma automática de las fuentes para no marear al bot
+            clean_content = msg["content"].split("\n\n*Fuentes:")[0].replace("📡 Base de Conocimiento Interna (LLM)", "")
+            history_payload.append({"role": msg["role"], "content": clean_content})
+
         try:
             async with httpx.AsyncClient(timeout=180.0) as client:
                 async with client.stream(
                     "POST",
                     "http://localhost:8000/api/query/stream",
-                    json={"query": question, "mode": self.mode, "model": self.model}
+                    json={
+                        "query": question, 
+                        "mode": self.mode, 
+                        "model": self.model,
+                        "history": history_payload
+                    }
                 ) as response:
                     sources = []
                     async for line in response.aiter_lines():

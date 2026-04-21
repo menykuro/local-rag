@@ -87,7 +87,7 @@ class RAGCore:
                 
         return results, scores
         
-    def generate_answer(self, query: str, context: str) -> str:
+    def generate_answer(self, query: str, context: str, is_fallback: bool = False, history: list = None) -> str:
         if self.llm is None:
             return f"[Modo Degradado - LLM no cargado]\nBasado en el contexto:\n{context[:200]}...\nRespuesta para: {query}"
             
@@ -96,18 +96,24 @@ class RAGCore:
         max_context_tokens = settings.llm_context_window - settings.llm_max_tokens - 200
         max_context_chars = max(500, max_context_tokens * 3)  # ~3 chars por token (conservador)
         
-        if len(context) > max_context_chars:
-            context = context[:max_context_chars] + "\n[...contexto recortado por límite de ventana...]"
-            
-        system_prompt = "Eres un analista investigador experto. Proporciona una respuesta clara, COMPLETA y bien redactada basándote estrictamente en la información del contexto proporcionado. Sé conciso y asegúrate de terminar de escribir todas tus frases lógicas. No inventes."
-        user_prompt = f"Contexto extraído de los documentos:\n{context}\n\nPregunta del usuario: {query}\n\nRespuesta estructurada:"
+        if is_fallback:
+            system_prompt = "Eres JARVIS, un asistente experto y avanzado. Responde a la pregunta del usuario utilizando todo tu conocimiento general. Sé directo, útil y claro."
+            user_prompt = f"Pregunta del usuario: {query}\n\nRespuesta:"
+        else:
+            if len(context) > max_context_chars:
+                context = context[:max_context_chars] + "\n[...contexto recortado por límite de ventana...]"
+                
+            system_prompt = "Eres un analista investigador experto. Proporciona una respuesta clara, COMPLETA y bien redactada basándote estrictamente en la información del contexto proporcionado. Sé conciso y asegúrate de terminar de escribir todas tus frases lógicas. No inventes."
+            user_prompt = f"Contexto extraído de los documentos:\n{context}\n\nPregunta del usuario: {query}\n\nRespuesta estructurada:"
         
+        messages = [{"role": "system", "content": system_prompt}]
+        if history:
+            messages.extend(history)
+        messages.append({"role": "user", "content": user_prompt})
+
         try:
             response = self.llm.create_chat_completion(
-                messages=[
-                    {"role": "system", "content": system_prompt},
-                    {"role": "user", "content": user_prompt}
-                ],
+                messages=messages,
                 max_tokens=settings.llm_max_tokens,
                 temperature=0.45
             )
@@ -115,28 +121,34 @@ class RAGCore:
         except Exception as e:
             return f"[Error generando respuesta del LLM]: {str(e)}"
 
-    def generate_answer_stream(self, query: str, context: str):
+    def generate_answer_stream(self, query: str, context: str, is_fallback: bool = False, history: list = None):
         """Generador que emite tokens uno a uno para streaming SSE."""
         if self.llm is None:
             yield "[Modo Degradado - LLM no cargado]"
             return
 
-        # Mismo presupuesto de tokens que generate_answer
-        max_context_tokens = settings.llm_context_window - settings.llm_max_tokens - 200
-        max_context_chars = max(500, max_context_tokens * 3)
+        if is_fallback:
+            system_prompt = "Eres JARVIS, un asistente experto y avanzado. Responde a la pregunta del usuario utilizando todo tu conocimiento general. Sé directo, útil y claro."
+            user_prompt = f"Pregunta del usuario: {query}\n\nRespuesta:"
+        else:
+            # Mismo presupuesto de tokens que generate_answer
+            max_context_tokens = settings.llm_context_window - settings.llm_max_tokens - 200
+            max_context_chars = max(500, max_context_tokens * 3)
+            
+            if len(context) > max_context_chars:
+                context = context[:max_context_chars] + "\n[...contexto recortado por límite de ventana...]"
+                
+            system_prompt = "Eres un analista investigador experto. Proporciona una respuesta clara, COMPLETA y bien redactada basándote estrictamente en la información del contexto proporcionado. Sé conciso y asegúrate de terminar de escribir todas tus frases lógicas. No inventes."
+            user_prompt = f"Contexto extraído de los documentos:\n{context}\n\nPregunta del usuario: {query}\n\nRespuesta estructurada:"
 
-        if len(context) > max_context_chars:
-            context = context[:max_context_chars] + "\n[...contexto recortado por límite de ventana...]"
-
-        system_prompt = "Eres un analista investigador experto. Proporciona una respuesta clara, COMPLETA y bien redactada basándote estrictamente en la información del contexto proporcionado. Sé conciso y asegúrate de terminar de escribir todas tus frases lógicas. No inventes."
-        user_prompt = f"Contexto extraído de los documentos:\n{context}\n\nPregunta del usuario: {query}\n\nRespuesta estructurada:"
+        messages = [{"role": "system", "content": system_prompt}]
+        if history:
+            messages.extend(history)
+        messages.append({"role": "user", "content": user_prompt})
 
         try:
             stream = self.llm.create_chat_completion(
-                messages=[
-                    {"role": "system", "content": system_prompt},
-                    {"role": "user", "content": user_prompt}
-                ],
+                messages=messages,
                 max_tokens=settings.llm_max_tokens,
                 temperature=0.45,
                 stream=True
