@@ -33,7 +33,12 @@ async def search(request: QueryRequest):
     # RAG mode
     results, scores = rag.instance.search(request.query, request.top_k)
     
-    if not results or (scores and scores[0] < settings.relevance_threshold):
+    # Filtrar resultados irrelevantes para no meter ruido ni fuentes falsas
+    filtered = [(r, s) for r, s in zip(results, scores) if s >= settings.relevance_threshold]
+    results = [r for r, s in filtered]
+    scores = [s for r, s in filtered]
+    
+    if not results:
         if settings.enable_web_fallback:
             from app.core.web_search import perform_web_search
             web_context, web_sources = perform_web_search(request.query)
@@ -74,9 +79,15 @@ async def search_stream(request: QueryRequest):
     import json
 
     results, scores = rag.instance.search(request.query, request.top_k)
+    
+    # Filtrar resultados irrelevantes para no meter ruido ni fuentes falsas
+    filtered = [(r, s) for r, s in zip(results, scores) if s >= settings.relevance_threshold]
+    results = [r for r, s in filtered]
+    scores = [s for r, s in filtered]
+
     sources_list = list(set(r['source'] for r in results)) if results else []
 
-    if not results or (scores and scores[0] < settings.relevance_threshold):
+    if not results:
         async def fallback_generator():
             try:
                 if settings.enable_web_fallback:
