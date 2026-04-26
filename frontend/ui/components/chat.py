@@ -22,6 +22,20 @@ def chat_interface() -> rx.Component:
         rx.box(
             rx.form(
                 rx.hstack(
+                    rx.tooltip(
+                        rx.icon_button(
+                            rx.icon("message-square-plus", size=18),
+                            on_click=State.reset_chat,
+                            variant="soft",
+                            color_scheme="gray",
+                            size="3",
+                            radius="full",
+                            cursor="pointer",
+                            disabled=State.is_processing,
+                            type="button",
+                        ),
+                        content="Nueva Conversación",
+                    ),
                     rx.input(
                         placeholder="Pregunta algo sobre tus documentos...",
                         value=State.current_question,

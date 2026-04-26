@@ -171,7 +171,7 @@ DuckDuckGo may temporarily block automated requests (rate limiting). The system 
 - [x] Web fallback with real page scraping
 - [x] Anti-hallucination prompt engineering
 - [x] Document management panel (view, delete, re-index individual files)
-- [ ] New conversation / chat reset from the UI
+- [x] New conversation / chat reset from the UI
 - [ ] Watch folder for automatic ingestion
 - [ ] Unit and integration tests
 - [ ] Persistent chat history

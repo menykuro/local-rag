@@ -28,6 +28,13 @@ class State(rx.State):
         """Actualiza el estado del item abierto del acordeón."""
         self.accordion_value = value if isinstance(value, str) else (value[0] if value else "")
 
+    def reset_chat(self):
+        """Reinicia el historial de chat a su estado inicial."""
+        self.chat_history = [
+            {"role": "assistant", "content": "¡Hola! Soy **JARVIS Mini**. Sube documentos en el panel lateral y pregúntame lo que necesites saber."}
+        ]
+        self.current_question = ""
+
     def set_current_question(self, value: str):
         self.current_question = value
 
