@@ -170,7 +170,7 @@ DuckDuckGo may temporarily block automated requests (rate limiting). The system 
 - [x] Local LLM generation with streaming
 - [x] Web fallback with real page scraping
 - [x] Anti-hallucination prompt engineering
-- [ ] Document management panel (view, delete, re-index individual files)
+- [x] Document management panel (view, delete, re-index individual files)
 - [ ] New conversation / chat reset from the UI
 - [ ] Watch folder for automatic ingestion
 - [ ] Unit and integration tests

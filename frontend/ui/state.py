@@ -19,12 +19,43 @@ class State(rx.State):
     ]
     current_question: str = ""
     is_processing: bool = False
-    stats: str = ""
     mode: str = "rag"
     model: str = "qwen-3.5-0.8b"
+    documents: list[dict[str, str]] = []
+    accordion_value: str = "documents"  # Por defecto abierto
+
+    def toggle_accordion(self, value: str | list[str]):
+        """Actualiza el estado del item abierto del acordeón."""
+        self.accordion_value = value if isinstance(value, str) else (value[0] if value else "")
 
     def set_current_question(self, value: str):
         self.current_question = value
+
+    async def load_documents(self):
+        """Carga la lista de documentos indexados desde el backend."""
+        try:
+            async with httpx.AsyncClient(timeout=10.0) as client:
+                response = await client.get("http://localhost:8000/api/index/documents")
+                if response.status_code == 200:
+                    self.documents = response.json()
+        except Exception:
+            pass
+
+    async def delete_document(self, source: str):
+        """Elimina un documento del índice y recarga la lista."""
+        import urllib.parse
+        try:
+            safe_source = urllib.parse.quote(source)
+            async with httpx.AsyncClient(timeout=30.0) as client:
+                response = await client.delete(f"http://localhost:8000/api/index/documents/{safe_source}")
+                if response.status_code == 200:
+                    yield rx.toast.success(f"'{source}' eliminado del índice.", duration=10000)
+                else:
+                    yield rx.toast.error(f"Error eliminando: {response.text}", duration=10000)
+        except Exception as e:
+            yield rx.toast.error(f"Error: {str(e)}", duration=10000)
+        await self.load_documents()
+        yield
 
     async def handle_upload(self, files: list[rx.UploadFile]):
         """Sube archivos al backend y los indexa en FAISS."""
@@ -43,12 +74,13 @@ class State(rx.State):
                 if response.status_code == 200:
                     data = response.json()
                     chunks = data.get('indexed_chunks', 0)
-                    self.stats = f"✅ {chunks} fragmentos indexados."
+                    yield rx.toast.success(f"{chunks} fragmentos indexados.", duration=10000)
                 else:
-                    self.stats = f"❌ Fallo: {response.text}"
+                    yield rx.toast.error(f"Fallo: {response.text}", duration=10000)
         except Exception as e:
-            self.stats = f"⚠️ Error: {str(e)}"
+            yield rx.toast.error(f"Error: {str(e)}", duration=10000)
         self.is_processing = False
+        await self.load_documents()
         yield
 
     async def handle_submit_query(self, form_data: dict = None):

@@ -3,6 +3,106 @@ import reflex as rx
 from ..state import State
 
 
+def _document_item(doc: dict) -> rx.Component:
+    """Fila individual de documento: icono + nombre truncado + badge chunks + botón eliminar."""
+    return rx.hstack(
+        rx.icon("file-text", size=14, color=rx.color("blue", 9), flex_shrink="0"),
+        rx.tooltip(
+            rx.text(
+                doc["source"],
+                size="1",
+                weight="medium",
+                overflow="hidden",
+                text_overflow="ellipsis",
+                white_space="nowrap",
+                flex="1",
+                min_width="0",
+            ),
+            content=doc["source"],
+        ),
+        rx.badge(doc["chunks"], color_scheme="blue", variant="soft", size="1", flex_shrink="0"),
+        rx.icon_button(
+            rx.icon("trash-2", size=12),
+            size="1",
+            variant="ghost",
+            color_scheme="red",
+            cursor="pointer",
+            on_click=State.delete_document(doc["source"]),
+            flex_shrink="0",
+        ),
+        align_items="center",
+        spacing="2",
+        width="100%",
+        padding_x="4px",
+        padding_y="3px",
+        border_radius="6px",
+        _hover={"bg": rx.color("gray", 4)},
+    )
+
+
+def _documents_section() -> rx.Component:
+    """Sección acordeón de documentos indexados."""
+    return rx.accordion.root(
+        rx.accordion.item(
+            rx.accordion.header(
+                rx.accordion.trigger(
+                    rx.hstack(
+                        rx.text("Documentos Indexados", size="3", weight="bold"),
+                        rx.icon(
+                            "chevron-down",
+                            style={
+                                "transform": rx.cond(
+                                    State.accordion_value == "documents", 
+                                    "rotate(180deg)", 
+                                    "rotate(0deg)"
+                                ),
+                                "transition": "transform 250ms ease",
+                            },
+                        ),
+                        justify="between",
+                        width="100%",
+                    ),
+                    padding="8px",
+                    border_radius="8px",
+                    _hover={"bg": rx.color("gray", 4)},
+                    cursor="pointer",
+                    width="100%",
+                ),
+            ),
+            rx.accordion.content(
+                rx.box(
+                    rx.cond(
+                        State.documents.length() > 0,
+                        rx.vstack(
+                            rx.foreach(State.documents, _document_item),
+                            spacing="1",
+                            width="100%",
+                        ),
+                        rx.text(
+                            "No hay documentos indexados",
+                            size="1",
+                            color=rx.color("gray", 9),
+                            font_style="italic",
+                            padding="8px",
+                        ),
+                    ),
+                    max_height="30vh",
+                    overflow_y="auto",
+                    width="100%",
+                    padding_top="4px",
+                ),
+            ),
+            value="documents",
+        ),
+        value=State.accordion_value,
+        on_value_change=State.toggle_accordion,
+        type="single",
+        collapsible=True,
+        width="100%",
+        variant="ghost",
+    )
+
+
 def sidebar() -> rx.Component:
     """Sidebar de administración: ingesta de documentos y ajustes del modelo."""
     return rx.vstack(
@@ -52,11 +152,11 @@ def sidebar() -> rx.Component:
             on_drop=State.handle_upload(rx.upload_files(upload_id="upload_dropzone")),
             bg=rx.color("gray", 3),
         ),
-        rx.cond(
-            State.stats != "",
-            rx.callout(State.stats, size="1", width="100%", margin_top="2"),
-            rx.box(),
-        ),
+
+        rx.separator(size="4", margin_y="4"),
+
+        # Documentos indexados (acordeón colapsable)
+        _documents_section(),
 
         rx.separator(size="4", margin_y="4"),
 
@@ -70,7 +170,7 @@ def sidebar() -> rx.Component:
         ),
 
         rx.spacer(),
-        rx.text("TFG · Local RAG Project", size="1", color=rx.color("gray", 8),
+        rx.text("TFM · Local RAG Project", size="1", color=rx.color("gray", 8),
                 align="center", width="100%"),
 
         width="15%",
@@ -83,4 +183,5 @@ def sidebar() -> rx.Component:
         spacing="0",
         flex_shrink="0",
         gap="5px",
+        on_mount=State.load_documents,
     )
