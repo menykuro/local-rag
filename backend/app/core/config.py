@@ -9,11 +9,13 @@ class Settings(BaseSettings):
     chunk_size: int = 500
     chunk_overlap: int = 50
     top_k: int = 5
-    relevance_threshold: float = 0.7
+    relevance_threshold: float = 0.45
     default_mode: str = 'rag'
     default_model: str = 'llama-3.1-8b'
     llm_model_path: str = os.path.join(PROJECT_ROOT, 'data', 'models', 'Qwen3.5-0.8B-BF16.gguf')
     llm_context_window: int = 4096
     llm_max_tokens: int = 512
+    enable_web_fallback: bool = True
+    web_search_max_results: int = 3
 
 settings = Settings()

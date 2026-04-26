@@ -81,35 +81,67 @@ class RAGCore:
         for i, idx in enumerate(indices[0]):
             if idx != -1 and idx < len(self.chunks_meta):
                 results.append(self.chunks_meta[idx])
-                # Lower L2 distance is better. Convert distance to a pseudo-score
-                score = float(1.0 / (1.0 + distances[0][i]))
+                # Convertir L2 distance a Cosine Similarity (asumiendo embeddings normalizados)
+                # L2^2 = 2 - 2 * cos_sim => cos_sim = 1 - L2^2 / 2
+                score = float(1.0 - (distances[0][i] / 2.0))
                 scores.append(score)
                 
         return results, scores
         
-    def generate_answer(self, query: str, context: str, is_fallback: bool = False, history: list = None) -> str:
-        if self.llm is None:
-            return f"[Modo Degradado - LLM no cargado]\nBasado en el contexto:\n{context[:200]}...\nRespuesta para: {query}"
-            
-        # Reservar tokens: sistema (~100) + plantilla (~50) + query (~50) + generación (max_tokens)
-        # Presupuesto disponible para contexto ≈ n_ctx - max_tokens - 200 overhead
+    def _build_messages(self, query: str, context: str, is_fallback: bool, is_web_fallback: bool, history: list = None) -> list:
+        """Construye la lista de mensajes para el LLM con los prompts adecuados según el modo."""
+        # Presupuesto de contexto: n_ctx - max_tokens - 200 overhead (~3 chars/token)
         max_context_tokens = settings.llm_context_window - settings.llm_max_tokens - 200
-        max_context_chars = max(500, max_context_tokens * 3)  # ~3 chars por token (conservador)
-        
-        if is_fallback:
-            system_prompt = "Eres JARVIS, un asistente experto y avanzado. Responde a la pregunta del usuario utilizando todo tu conocimiento general. Sé directo, útil y claro."
-            user_prompt = f"Pregunta del usuario: {query}\n\nRespuesta:"
+        max_context_chars = max(500, max_context_tokens * 3)
+
+        if len(context) > max_context_chars:
+            context = context[:max_context_chars] + "\n[...contexto recortado por límite de ventana...]"
+
+        if is_web_fallback:
+            if context.strip():
+                system_prompt = (
+                    "Eres JARVIS, un analista experto. Se ha realizado una búsqueda en internet para responder a esta pregunta.\n"
+                    "REGLAS ESTRICTAS:\n"
+                    "1. Responde basándote ÚNICAMENTE en los resultados de la web proporcionados.\n"
+                    "2. Si los resultados de la web NO contienen el dato exacto (por ejemplo, piden la temperatura actual y solo ves la máxima/mínima), NO LO INVENTES. Di explícitamente qué datos has encontrado y confiesa que falta el dato exacto.\n"
+                    "3. Menciona siempre que tu respuesta se basa en la búsqueda web reciente."
+                )
+            else:
+                system_prompt = (
+                    "Eres JARVIS. La búsqueda en internet ha fallado o ha sido bloqueada.\n"
+                    "REGLAS ESTRICTAS:\n"
+                    "1. Si la pregunta pide datos en tiempo real (clima, temperatura, hora actual, bolsa, noticias de hoy), TIENES PROHIBIDO INVENTAR LA RESPUESTA.\n"
+                    "2. DEBES RESPONDER EXACTAMENTE ESTO: 'No puedo proporcionar el dato porque la búsqueda en internet ha fallado temporalmente y no tengo acceso a datos en tiempo real.'\n"
+                    "3. Si la pregunta es sobre conocimiento general atemporal (historia, ciencia), responde usando tu conocimiento."
+                )
+            user_prompt = f"Resultados de la web:\n{context}\n\nPregunta actual: {query}\n\nRespuesta estructurada:"
+        elif is_fallback:
+            system_prompt = (
+                "Eres JARVIS, un asistente experto. Estás funcionando sin conexión a internet.\n"
+                "REGLAS ESTRICTAS:\n"
+                "1. Si la pregunta requiere información en tiempo real (clima actual, temperatura, bolsa, noticias de hoy), TIENES PROHIBIDO INVENTAR LA RESPUESTA.\n"
+                "2. DEBES RESPONDER: 'No tengo acceso a internet para buscar datos en tiempo real. Por favor, activa la búsqueda web.'\n"
+                "3. Para preguntas de conocimiento atemporal, responde normalmente."
+            )
+            user_prompt = f"Pregunta actual: {query}\n\nRespuesta:"
         else:
-            if len(context) > max_context_chars:
-                context = context[:max_context_chars] + "\n[...contexto recortado por límite de ventana...]"
-                
-            system_prompt = "Eres un analista investigador experto. Proporciona una respuesta clara, COMPLETA y bien redactada basándote estrictamente en la información del contexto proporcionado. Sé conciso y asegúrate de terminar de escribir todas tus frases lógicas. No inventes."
-            user_prompt = f"Contexto extraído de los documentos:\n{context}\n\nPregunta del usuario: {query}\n\nRespuesta estructurada:"
-        
+            system_prompt = (
+                "Eres un analista experto. Responde basándote estrictamente en el contexto proporcionado. "
+                "Ignora mensajes anteriores del historial si no tienen relación con la pregunta actual. No inventes."
+            )
+            user_prompt = f"Contexto de documentos:\n{context}\n\nPregunta actual: {query}\n\nRespuesta estructurada:"
+
         messages = [{"role": "system", "content": system_prompt}]
         if history:
             messages.extend(history)
         messages.append({"role": "user", "content": user_prompt})
+        return messages
+
+    def generate_answer(self, query: str, context: str, is_fallback: bool = False, is_web_fallback: bool = False, history: list = None) -> str:
+        if self.llm is None:
+            return f"[Modo Degradado - LLM no cargado]\nBasado en el contexto:\n{context[:200]}...\nRespuesta para: {query}"
+
+        messages = self._build_messages(query, context, is_fallback, is_web_fallback, history)
 
         try:
             response = self.llm.create_chat_completion(
@@ -121,30 +153,13 @@ class RAGCore:
         except Exception as e:
             return f"[Error generando respuesta del LLM]: {str(e)}"
 
-    def generate_answer_stream(self, query: str, context: str, is_fallback: bool = False, history: list = None):
+    def generate_answer_stream(self, query: str, context: str, is_fallback: bool = False, is_web_fallback: bool = False, history: list = None):
         """Generador que emite tokens uno a uno para streaming SSE."""
         if self.llm is None:
             yield "[Modo Degradado - LLM no cargado]"
             return
 
-        if is_fallback:
-            system_prompt = "Eres JARVIS, un asistente experto y avanzado. Responde a la pregunta del usuario utilizando todo tu conocimiento general. Sé directo, útil y claro."
-            user_prompt = f"Pregunta del usuario: {query}\n\nRespuesta:"
-        else:
-            # Mismo presupuesto de tokens que generate_answer
-            max_context_tokens = settings.llm_context_window - settings.llm_max_tokens - 200
-            max_context_chars = max(500, max_context_tokens * 3)
-            
-            if len(context) > max_context_chars:
-                context = context[:max_context_chars] + "\n[...contexto recortado por límite de ventana...]"
-                
-            system_prompt = "Eres un analista investigador experto. Proporciona una respuesta clara, COMPLETA y bien redactada basándote estrictamente en la información del contexto proporcionado. Sé conciso y asegúrate de terminar de escribir todas tus frases lógicas. No inventes."
-            user_prompt = f"Contexto extraído de los documentos:\n{context}\n\nPregunta del usuario: {query}\n\nRespuesta estructurada:"
-
-        messages = [{"role": "system", "content": system_prompt}]
-        if history:
-            messages.extend(history)
-        messages.append({"role": "user", "content": user_prompt})
+        messages = self._build_messages(query, context, is_fallback, is_web_fallback, history)
 
         try:
             stream = self.llm.create_chat_completion(

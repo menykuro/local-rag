@@ -8,5 +8,8 @@ pydantic-settings
 python-dotenv
 requests
 llama-cpp-python
-pypdf
+pdfplumber
+beautifulsoup4
+lxml
 python-docx
+duckduckgo-search

@@ -209,6 +209,8 @@ __marimo__/
 # Reflex (Frontend)
 .web/
 .states/
+frontend/assets/external/
+frontend/*.db
 
 # Local RAG Data & Models
 data/models/

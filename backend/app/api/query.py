@@ -33,7 +33,20 @@ async def search(request: QueryRequest):
     # RAG mode
     results, scores = rag.instance.search(request.query, request.top_k)
     
-    if not results or (scores and scores[0] < 0.50):
+    if not results or (scores and scores[0] < settings.relevance_threshold):
+        if settings.enable_web_fallback:
+            from app.core.web_search import perform_web_search
+            web_context, web_sources = perform_web_search(request.query)
+            
+            answer = rag.instance.generate_answer(request.query, web_context, is_web_fallback=True, history=request.history)
+            final_sources = web_sources if web_sources else ['⚠️ Búsqueda web fallida (sin resultados)']
+            return {
+                'answer': answer,
+                'sources': final_sources,
+                'used_web': True,
+                'scores': scores
+            }
+                
         answer = rag.instance.generate_answer(request.query, "", is_fallback=True, history=request.history)
         return {
             'answer': answer,
@@ -41,7 +54,6 @@ async def search(request: QueryRequest):
             'used_web': False,
             'scores': scores
         }
-        
     context = "\n".join([r['text'] for r in results])
     sources_list = [f"{r['source']}" for r in results]
     
@@ -64,9 +76,20 @@ async def search_stream(request: QueryRequest):
     results, scores = rag.instance.search(request.query, request.top_k)
     sources_list = list(set(r['source'] for r in results)) if results else []
 
-    if not results or (scores and scores[0] < 0.50):
+    if not results or (scores and scores[0] < settings.relevance_threshold):
         async def fallback_generator():
             try:
+                if settings.enable_web_fallback:
+                    from app.core.web_search import perform_web_search
+                    web_context, web_sources = perform_web_search(request.query)
+                    
+                    for token in rag.instance.generate_answer_stream(request.query, web_context, is_web_fallback=True, history=request.history):
+                        yield f"data: {json.dumps({'token': token, 'done': False, 'sources': []})}\n\n"
+                    
+                    final_sources = web_sources if web_sources else ['⚠️ Búsqueda web fallida (sin resultados)']
+                    yield f"data: {json.dumps({'token': '', 'done': True, 'sources': final_sources})}\n\n"
+                    return
+
                 for token in rag.instance.generate_answer_stream(request.query, "", is_fallback=True, history=request.history):
                     yield f"data: {json.dumps({'token': token, 'done': False, 'sources': []})}\n\n"
                 yield f"data: {json.dumps({'token': '', 'done': True, 'sources': ['📡 Base de Conocimiento Interna (LLM)']})}\n\n"
