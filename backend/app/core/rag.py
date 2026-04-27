@@ -177,30 +177,45 @@ class RAGCore:
             yield f"[Error generando respuesta]: {str(e)}"
         
     def list_documents(self) -> list[dict]:
-        """Devuelve la lista de documentos únicos con su número de chunks."""
+        """Devuelve la lista de documentos únicos con su número de chunks y nombre amigable."""
         from collections import Counter
         counts = Counter(c["source"] for c in self.chunks_meta)
-        return [{"source": src, "chunks": n} for src, n in counts.items()]
+        return [
+            {
+                "source": src, 
+                "display_name": os.path.basename(src),
+                "chunks": n
+            } for src, n in counts.items()
+        ]
 
     def delete_document(self, source: str) -> bool:
-        """Elimina un documento del índice por nombre de fuente.
-        Reconstruye FAISS extrayendo los vectores existentes para evitar re-procesar con IA."""
+        """Elimina un documento del índice por nombre de fuente."""
         keep_indices = [i for i, c in enumerate(self.chunks_meta) if c["source"] != source]
-        
         if len(keep_indices) == len(self.chunks_meta):
-            return False  # No se encontró el documento
+            return False
+        return self._rebuild_index_from_indices(keep_indices)
 
-        # Extraer todos los vectores actuales antes de limpiar el índice
+    def delete_documents_by_sources(self, sources: list[str]) -> int:
+        """Elimina múltiples documentos de una sola pasada (más eficiente que N llamadas individuales).
+        Returns: número de fuentes eliminadas."""
+        sources_set = set(sources)
+        keep_indices = [i for i, c in enumerate(self.chunks_meta) if c["source"] not in sources_set]
+        removed_count = len(set(c["source"] for c in self.chunks_meta) & sources_set)
+        if len(keep_indices) == len(self.chunks_meta):
+            return 0
+        self._rebuild_index_from_indices(keep_indices)
+        return removed_count
+
+    def _rebuild_index_from_indices(self, keep_indices: list[int]) -> bool:
+        """Reconstruye el índice FAISS usando solo los vectores de keep_indices.
+        Evita re-codificar embeddings con el modelo de IA."""
         if self.index.ntotal > 0:
             all_vectors = self.index.reconstruct_n(0, self.index.ntotal)
             filtered_vectors = all_vectors[keep_indices]
         else:
             filtered_vectors = np.array([])
 
-        # Filtrar los metadatos
         self.chunks_meta = [self.chunks_meta[i] for i in keep_indices]
-
-        # Reconstruir el índice FAISS con los vectores filtrados
         self.index = faiss.IndexFlatL2(self.embedding_dim)
         if len(filtered_vectors) > 0:
             self.index.add(filtered_vectors)

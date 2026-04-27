@@ -9,7 +9,7 @@ def _document_item(doc: dict) -> rx.Component:
         rx.icon("file-text", size=14, color=rx.color("blue", 9), flex_shrink="0"),
         rx.tooltip(
             rx.text(
-                doc["source"],
+                doc["display_name"],
                 size="1",
                 weight="medium",
                 overflow="hidden",
@@ -103,6 +103,134 @@ def _documents_section() -> rx.Component:
     )
 
 
+def _watch_folder_row(path: str) -> rx.Component:
+    """Fila individual con 3 opciones: Pausar, Desindexar, Eliminar."""
+    return rx.hstack(
+        rx.icon("folder-open", size=14, color=rx.color("green", 9), flex_shrink="0"),
+        rx.tooltip(
+            rx.text(
+                path,
+                size="1",
+                overflow="hidden",
+                text_overflow="ellipsis",
+                white_space="nowrap",
+                flex="1",
+                min_width="0",
+            ),
+            content=path,
+        ),
+        # 1. Destrackear (Pausar)
+        rx.tooltip(
+            rx.icon_button(
+                rx.icon("pause", size=11),
+                size="1",
+                variant="ghost",
+                color_scheme="gray",
+                cursor="pointer",
+                on_click=State.untrack_watcher(path),
+            ),
+            content="Pausar vigilancia (mantener docs)",
+        ),
+        # 2. Desindexar
+        rx.tooltip(
+            rx.icon_button(
+                rx.icon("file-minus", size=11),
+                size="1",
+                variant="ghost",
+                color_scheme="yellow",
+                cursor="pointer",
+                on_click=State.unindex_watcher(path),
+            ),
+            content="Desindexar (borrar chunks)",
+        ),
+        # 3. Eliminar
+        rx.tooltip(
+            rx.icon_button(
+                rx.icon("trash-2", size=11),
+                size="1",
+                variant="ghost",
+                color_scheme="red",
+                cursor="pointer",
+                on_click=State.remove_watcher(path),
+            ),
+            content="Eliminar completamente",
+        ),
+        align_items="center",
+        spacing="1",
+        width="100%",
+        padding_x="4px",
+        padding_y="3px",
+        border_radius="6px",
+        _hover={"bg": rx.color("gray", 4)},
+    )
+
+
+def _watch_folder_section() -> rx.Component:
+    """Sección de watch folders colapsable."""
+    return rx.vstack(
+        rx.hstack(
+            rx.icon("folder-sync", size=14, color=rx.color("gray", 10)),
+            rx.text("Watch Folder", size="3", weight="bold"),
+            rx.cond(
+                State.watch_running,
+                rx.badge("● Activo", color_scheme="green", variant="soft", size="1"),
+                rx.badge("● Inactivo", color_scheme="gray", variant="soft", size="1"),
+            ),
+            align_items="center",
+            spacing="2",
+            width="100%",
+        ),
+        # Lista de carpetas vigiladas activas
+        rx.cond(
+            State.watch_folders.length() > 0,
+            rx.vstack(
+                rx.foreach(State.watch_folders, _watch_folder_row),
+                spacing="1",
+                width="100%",
+            ),
+            rx.text(
+                "Ninguna carpeta vigilada",
+                size="1",
+                color=rx.color("gray", 9),
+                font_style="italic",
+            ),
+        ),
+        # Input + botón para añadir nueva ruta
+        rx.hstack(
+            rx.tooltip(
+                rx.icon_button(
+                    rx.icon("folder-search", size=14),
+                    on_click=State.select_folder_dialog,
+                    size="1",
+                    color_scheme="gray",
+                    cursor="pointer",
+                ),
+                content="Seleccionar carpeta",
+            ),
+            rx.input(
+                placeholder="Ruta...",
+                value=State.new_watch_path,
+                on_change=State.set_new_watch_path,
+                size="1",
+                flex="1",
+            ),
+            rx.icon_button(
+                rx.icon("plus", size=14),
+                on_click=State.start_watcher,
+                size="1",
+                color_scheme="blue",
+                cursor="pointer",
+                type="button",
+            ),
+            spacing="2",
+            width="100%",
+        ),
+        spacing="2",
+        width="100%",
+        padding_x="2px",
+    )
+
+
 def sidebar() -> rx.Component:
     """Sidebar de administración: ingesta de documentos y ajustes del modelo."""
     return rx.vstack(
@@ -160,7 +288,11 @@ def sidebar() -> rx.Component:
 
         rx.separator(size="4", margin_y="4"),
 
-        # Modelo activo
+        # Watch Folder
+        _watch_folder_section(),
+
+        rx.separator(size="4", margin_y="4"),
+
         rx.heading("Modelo Activo", size="3", padding_x="1"),
         rx.hstack(
             rx.badge("Qwen 3.5 · 0.8B", color_scheme="blue", variant="soft"),
@@ -183,5 +315,5 @@ def sidebar() -> rx.Component:
         spacing="0",
         flex_shrink="0",
         gap="5px",
-        on_mount=State.load_documents,
+        on_mount=[State.load_documents, State.load_watch_status, State.update_loop],
     )

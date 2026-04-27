@@ -2,6 +2,7 @@
 import reflex as rx
 import httpx
 import json
+import asyncio
 
 # JS para hacer scroll al fondo del contenedor de chat
 SCROLL_BOTTOM_JS = """
@@ -23,6 +24,10 @@ class State(rx.State):
     model: str = "qwen-3.5-0.8b"
     documents: list[dict[str, str]] = []
     accordion_value: str = "documents"  # Por defecto abierto
+    # Watch folder
+    watch_folders: list[str] = []
+    watch_running: bool = False
+    new_watch_path: str = ""
 
     def toggle_accordion(self, value: str | list[str]):
         """Actualiza el estado del item abierto del acordeón."""
@@ -38,6 +43,9 @@ class State(rx.State):
     def set_current_question(self, value: str):
         self.current_question = value
 
+    def set_new_watch_path(self, value: str):
+        self.new_watch_path = value
+
     async def load_documents(self):
         """Carga la lista de documentos indexados desde el backend."""
         try:
@@ -47,6 +55,113 @@ class State(rx.State):
                     self.documents = response.json()
         except Exception:
             pass
+
+    async def load_watch_status(self):
+        """Carga el estado del watcher desde el backend."""
+        try:
+            async with httpx.AsyncClient(timeout=10.0) as client:
+                response = await client.get("http://localhost:8000/api/index/watch/status")
+                if response.status_code == 200:
+                    data = response.json()
+                    self.watch_running = data.get("running", False)
+                    self.watch_folders = data.get("paths", [])
+        except Exception:
+            pass
+
+    async def select_folder_dialog(self):
+        """Abre el diálogo de selección de carpeta en el servidor."""
+        try:
+            async with httpx.AsyncClient(timeout=60.0) as client:
+                response = await client.get("http://localhost:8000/api/index/watch/select-folder")
+                if response.status_code == 200:
+                    path = response.json().get("path", "")
+                    if path:
+                        self.new_watch_path = path
+        except Exception as e:
+            yield rx.toast.error(f"Error al abrir selector: {str(e)}")
+
+    async def start_watcher(self):
+        """Activa la vigilancia de la carpeta introducida."""
+        path = self.new_watch_path.strip()
+        if not path:
+            yield rx.toast.warning("Introduce una ruta de carpeta.", duration=5000)
+            return
+        try:
+            async with httpx.AsyncClient(timeout=15.0) as client:
+                response = await client.post(
+                    "http://localhost:8000/api/index/watch/start",
+                    json={"path": path}
+                )
+                if response.status_code == 200:
+                    self.new_watch_path = ""
+                    yield rx.toast.success(f"Watch Folder activado: {path}", duration=8000)
+                else:
+                    detail = response.json().get("detail", response.text)
+                    yield rx.toast.error(f"Error: {detail}", duration=10000)
+        except Exception as e:
+            yield rx.toast.error(f"Error de conexión: {str(e)}", duration=10000)
+        await self.load_watch_status()
+        await self.load_documents()
+        yield
+
+    async def untrack_watcher(self, path: str):
+        """Deja de vigilar pero mantiene en la lista."""
+        try:
+            async with httpx.AsyncClient(timeout=10.0) as client:
+                await client.post("http://localhost:8000/api/index/watch/untrack", json={"path": path})
+                yield rx.toast.info(f"Vigilancia pausada: {path}")
+        except Exception as e:
+            yield rx.toast.error(str(e))
+        await self.load_watch_status()
+
+    async def unindex_watcher(self, path: str):
+        """Detiene y elimina documentos del índice."""
+        try:
+            async with httpx.AsyncClient(timeout=30.0) as client:
+                await client.post("http://localhost:8000/api/index/watch/unindex", json={"path": path})
+                yield rx.toast.warning(f"Carpeta desindexada: {path}")
+        except Exception as e:
+            yield rx.toast.error(str(e))
+        await self.load_watch_status()
+        await self.load_documents()
+
+    async def remove_watcher(self, path: str):
+        """Elimina completamente de la configuración."""
+        try:
+            async with httpx.AsyncClient(timeout=30.0) as client:
+                await client.post("http://localhost:8000/api/index/watch/remove", json={"path": path})
+                yield rx.toast.error(f"Watch Folder eliminado: {path}")
+        except Exception as e:
+            yield rx.toast.error(str(e))
+        await self.load_watch_status()
+        await self.load_documents()
+
+    @rx.event(background=True)
+    async def update_loop(self):
+        """Tarea en segundo plano para actualizar documentos en tiempo real."""
+        while True:
+            await asyncio.sleep(5)
+            async with self:
+                # Actualizar lista de documentos y estado de watchers
+                async with httpx.AsyncClient() as client:
+                    try:
+                        doc_resp = await client.get("http://localhost:8000/api/index/documents")
+                        watch_resp = await client.get("http://localhost:8000/api/index/watch/status")
+                        
+                        if doc_resp.status_code == 200:
+                            self.documents = doc_resp.json()
+                        if watch_resp.status_code == 200:
+                            data = watch_resp.json()
+                            self.watch_running = data.get("running", False)
+                            self.watch_folders = data.get("paths", [])
+                    except Exception:
+                        pass
+            yield
+
+    async def stop_watcher(self, path: str):
+        # Mantenemos este por compatibilidad si se usa en otros sitios, 
+        # pero ahora preferimos untrack/unindex/remove
+        await self.untrack_watcher(path)
 
     async def delete_document(self, source: str):
         """Elimina un documento del índice y recarga la lista."""
