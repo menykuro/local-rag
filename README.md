@@ -172,7 +172,7 @@ DuckDuckGo may temporarily block automated requests (rate limiting). The system 
 - [x] Anti-hallucination prompt engineering
 - [x] Document management panel (view, delete, re-index individual files)
 - [x] New conversation / chat reset from the UI
-- [ ] Watch folder for automatic ingestion
+- [x] Watch folder for automatic ingestion
 - [ ] Unit and integration tests
 - [ ] Persistent chat history
 - [ ] Migration from `duckduckgo-search` to `ddgs`

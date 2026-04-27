@@ -2,28 +2,38 @@
 import logging
 import os
 import threading
+import time
 from watchdog.observers import Observer
 from watchdog.events import FileSystemEventHandler
 from app.core.ingest_file import is_supported_file, process_file
+from app.core.config import normalize_watch_path
 
 
 class _FileEventHandler(FileSystemEventHandler):
     """Manejador de eventos del sistema de ficheros para una carpeta vigilada."""
 
-    def __init__(self, path: str):
+    def __init__(self, path: str, debounce_seconds: float = 1.25):
         super().__init__()
-        self.path = path
-        # Evitar re-indexar el mismo archivo si llegan dos eventos seguidos
+        self.path = normalize_watch_path(path)
+        self._debounce_seconds = debounce_seconds
         self._processing_lock = threading.Lock()
+        self._last_processed_at: dict[str, float] = {}
 
     def _handle(self, file_path: str):
-        """Procesa un archivo si es compatible y no está siendo ya procesado."""
-        if not is_supported_file(file_path):
+        """Procesa un archivo si es compatible y no está en ventana de debounce."""
+        normalized_file = normalize_watch_path(file_path)
+        if not is_supported_file(normalized_file):
             return
-        # Pequeño lock para evitar dobles eventos (created + modified) simultáneos
+
+        now = time.monotonic()
         with self._processing_lock:
-            logging.info(f"[Watch] Detectado nuevo archivo: {file_path}")
-            process_file(file_path)
+            previous = self._last_processed_at.get(normalized_file)
+            if previous is not None and (now - previous) < self._debounce_seconds:
+                return
+            self._last_processed_at[normalized_file] = now
+
+        logging.info(f"[Watch] Detectado cambio en archivo: {normalized_file}")
+        process_file(normalized_file)
 
     def on_created(self, event):
         if not event.is_directory:
@@ -38,11 +48,11 @@ class WatcherService:
     """Singleton que gestiona múltiples Observers de watchdog."""
 
     def __init__(self):
-        self._observers: dict[str, Observer] = {}  # path -> Observer
+        self._observers: dict[str, Observer] = {}
         self._lock = threading.Lock()
 
     def _scan_existing(self, path: str):
-        """Indexa todos los archivos compatibles ya existentes en la carpeta."""
+        """Indexa archivos compatibles ya existentes en la carpeta."""
         logging.info(f"[Watch] Escaneando archivos existentes en: {path}")
         for root, _, files in os.walk(path):
             for filename in files:
@@ -50,43 +60,42 @@ class WatcherService:
                 if is_supported_file(file_path):
                     process_file(file_path)
 
-    def start(self, path: str, recursive: bool = False) -> bool:
+    def start(self, path: str, recursive: bool = True) -> bool:
         """Inicia la vigilancia de una carpeta. Devuelve True si se activó."""
-        path = os.path.normpath(path)
+        normalized_path = normalize_watch_path(path)
         with self._lock:
-            if path in self._observers:
-                logging.info(f"[Watch] Ya está siendo vigilada: {path}")
+            if normalized_path in self._observers:
+                logging.info(f"[Watch] Ya está siendo vigilada: {normalized_path}")
                 return False
-            if not os.path.isdir(path):
-                logging.error(f"[Watch] La ruta no existe o no es una carpeta: {path}")
+            if not os.path.isdir(normalized_path):
+                logging.error(f"[Watch] La ruta no existe o no es una carpeta: {normalized_path}")
                 return False
 
-            # Escanear los archivos existentes primero en un hilo aparte
             threading.Thread(
                 target=self._scan_existing,
-                args=(path,),
+                args=(normalized_path,),
                 daemon=True,
-                name=f"watch-scan-{os.path.basename(path)}"
+                name=f"watch-scan-{os.path.basename(normalized_path)}",
             ).start()
 
-            handler = _FileEventHandler(path)
+            handler = _FileEventHandler(normalized_path)
             observer = Observer()
-            observer.schedule(handler, path, recursive=recursive)
+            observer.schedule(handler, normalized_path, recursive=recursive)
             observer.start()
-            self._observers[path] = observer
-            logging.info(f"[Watch] Vigilancia activa en: {path}")
+            self._observers[normalized_path] = observer
+            logging.info(f"[Watch] Vigilancia activa en: {normalized_path}")
             return True
 
     def stop(self, path: str) -> bool:
         """Detiene la vigilancia de una carpeta concreta. Devuelve True si estaba activa."""
-        path = os.path.normpath(path)
+        normalized_path = normalize_watch_path(path)
         with self._lock:
-            observer = self._observers.pop(path, None)
+            observer = self._observers.pop(normalized_path, None)
             if observer is None:
                 return False
             observer.stop()
             observer.join()
-            logging.info(f"[Watch] Vigilancia detenida: {path}")
+            logging.info(f"[Watch] Vigilancia detenida: {normalized_path}")
             return True
 
     def stop_all(self):
@@ -98,17 +107,12 @@ class WatcherService:
                 logging.info(f"[Watch] Observer detenido: {path}")
             self._observers.clear()
 
-    def status(self) -> dict:
-        """Devuelve el estado actual de todos los watchers."""
+    def active_paths(self) -> list[str]:
         with self._lock:
-            return {
-                "running": len(self._observers) > 0,
-                "paths": list(self._observers.keys()),
-            }
+            return list(self._observers.keys())
 
     def is_watching(self, path: str) -> bool:
-        return os.path.normpath(path) in self._observers
+        return normalize_watch_path(path) in self._observers
 
 
-# Singleton global
 instance = WatcherService()

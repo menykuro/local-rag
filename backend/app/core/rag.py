@@ -51,10 +51,15 @@ class RAGCore:
             json.dump(self.chunks_meta, f, ensure_ascii=False, indent=2)
         faiss.write_index(self.index, self.index_path)
 
-    def add_documents(self, chunks: list, source: str):
+    def add_documents(self, chunks: list, source: str, replace_source: bool = True):
         if not chunks:
             return
-            
+
+        if replace_source:
+            keep_indices = [i for i, c in enumerate(self.chunks_meta) if c["source"] != source]
+            if len(keep_indices) != len(self.chunks_meta):
+                self._rebuild_index_from_indices(keep_indices)
+
         embeddings = self.model.encode(chunks)
         
         # Add to faiss
@@ -180,10 +185,16 @@ class RAGCore:
         """Devuelve la lista de documentos únicos con su número de chunks y nombre amigable."""
         from collections import Counter
         counts = Counter(c["source"] for c in self.chunks_meta)
+
+        def _display_name(source: str) -> str:
+            if source.startswith("upload::"):
+                return source.split("upload::", 1)[1]
+            return os.path.basename(source)
+
         return [
             {
                 "source": src, 
-                "display_name": os.path.basename(src),
+                "display_name": _display_name(src),
                 "chunks": n
             } for src, n in counts.items()
         ]

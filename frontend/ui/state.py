@@ -23,15 +23,32 @@ class State(rx.State):
     mode: str = "rag"
     model: str = "qwen-3.5-0.8b"
     documents: list[dict[str, str]] = []
-    accordion_value: str = "documents"  # Por defecto abierto
+    documents_accordion_value: str = "documents"
+    watch_accordion_value: str = "watch"
     # Watch folder
-    watch_folders: list[str] = []
+    watch_folders: list[dict] = []
     watch_running: bool = False
     new_watch_path: str = ""
+    delete_document_modal_open: bool = False
+    remove_watch_modal_open: bool = False
+    pending_document_source: str = ""
+    pending_watch_path: str = ""
 
-    def toggle_accordion(self, value: str | list[str]):
+    def toggle_documents_accordion(self, value: str | list[str]):
         """Actualiza el estado del item abierto del acordeón."""
-        self.accordion_value = value if isinstance(value, str) else (value[0] if value else "")
+        self.documents_accordion_value = value if isinstance(value, str) else (value[0] if value else "")
+
+    def toggle_documents_section(self):
+        """Alterna abrir/cerrar la sección de documentos."""
+        self.documents_accordion_value = "" if self.documents_accordion_value == "documents" else "documents"
+
+    def toggle_watch_accordion(self, value: str | list[str]):
+        """Actualiza el estado del acordeón de Watch Folder."""
+        self.watch_accordion_value = value if isinstance(value, str) else (value[0] if value else "")
+
+    def toggle_watch_section(self):
+        """Alterna abrir/cerrar la sección de watch folder."""
+        self.watch_accordion_value = "" if self.watch_accordion_value == "watch" else "watch"
 
     def reset_chat(self):
         """Reinicia el historial de chat a su estado inicial."""
@@ -45,6 +62,36 @@ class State(rx.State):
 
     def set_new_watch_path(self, value: str):
         self.new_watch_path = value
+
+    def open_delete_document_modal(self, source: str):
+        self.pending_document_source = source
+        self.delete_document_modal_open = True
+
+    def close_delete_document_modal(self):
+        self.delete_document_modal_open = False
+        self.pending_document_source = ""
+
+    def open_remove_watch_modal(self, path: str):
+        self.pending_watch_path = path
+        self.remove_watch_modal_open = True
+
+    def close_remove_watch_modal(self):
+        self.remove_watch_modal_open = False
+        self.pending_watch_path = ""
+
+    def confirm_delete_document(self):
+        source = self.pending_document_source
+        self.close_delete_document_modal()
+        if source:
+            return State.delete_document(source)
+        return None
+
+    def confirm_remove_watch(self):
+        path = self.pending_watch_path
+        self.close_remove_watch_modal()
+        if path:
+            return State.remove_watcher(path)
+        return None
 
     async def load_documents(self):
         """Carga la lista de documentos indexados desde el backend."""
@@ -64,7 +111,7 @@ class State(rx.State):
                 if response.status_code == 200:
                     data = response.json()
                     self.watch_running = data.get("running", False)
-                    self.watch_folders = data.get("paths", [])
+                    self.watch_folders = data.get("folders", [])
         except Exception:
             pass
 
@@ -90,7 +137,7 @@ class State(rx.State):
             async with httpx.AsyncClient(timeout=15.0) as client:
                 response = await client.post(
                     "http://localhost:8000/api/index/watch/start",
-                    json={"path": path}
+                    json={"path": path, "recursive": True}
                 )
                 if response.status_code == 200:
                     self.new_watch_path = ""
@@ -104,22 +151,45 @@ class State(rx.State):
         await self.load_documents()
         yield
 
-    async def untrack_watcher(self, path: str):
-        """Deja de vigilar pero mantiene en la lista."""
+    async def pause_watcher(self, path: str):
+        """Pausa vigilancia de una ruta configurada."""
         try:
             async with httpx.AsyncClient(timeout=10.0) as client:
-                await client.post("http://localhost:8000/api/index/watch/untrack", json={"path": path})
-                yield rx.toast.info(f"Vigilancia pausada: {path}")
+                response = await client.post("http://localhost:8000/api/index/watch/pause", json={"path": path})
+                if response.status_code == 200:
+                    yield rx.toast.info(f"Vigilancia pausada: {path}")
+                else:
+                    detail = response.json().get("detail", response.text)
+                    yield rx.toast.error(f"Error: {detail}")
         except Exception as e:
             yield rx.toast.error(str(e))
         await self.load_watch_status()
+
+    async def resume_watcher(self, path: str):
+        """Reanuda vigilancia de una ruta pausada."""
+        try:
+            async with httpx.AsyncClient(timeout=10.0) as client:
+                response = await client.post("http://localhost:8000/api/index/watch/resume", json={"path": path})
+                if response.status_code == 200:
+                    yield rx.toast.success(f"Vigilancia reanudada: {path}")
+                else:
+                    detail = response.json().get("detail", response.text)
+                    yield rx.toast.error(f"Error: {detail}")
+        except Exception as e:
+            yield rx.toast.error(str(e))
+        await self.load_watch_status()
+        await self.load_documents()
 
     async def unindex_watcher(self, path: str):
         """Detiene y elimina documentos del índice."""
         try:
             async with httpx.AsyncClient(timeout=30.0) as client:
-                await client.post("http://localhost:8000/api/index/watch/unindex", json={"path": path})
-                yield rx.toast.warning(f"Carpeta desindexada: {path}")
+                response = await client.post("http://localhost:8000/api/index/watch/unindex", json={"path": path})
+                if response.status_code == 200:
+                    yield rx.toast.warning(f"Carpeta desindexada: {path}")
+                else:
+                    detail = response.json().get("detail", response.text)
+                    yield rx.toast.error(f"Error: {detail}")
         except Exception as e:
             yield rx.toast.error(str(e))
         await self.load_watch_status()
@@ -129,8 +199,31 @@ class State(rx.State):
         """Elimina completamente de la configuración."""
         try:
             async with httpx.AsyncClient(timeout=30.0) as client:
-                await client.post("http://localhost:8000/api/index/watch/remove", json={"path": path})
-                yield rx.toast.error(f"Watch Folder eliminado: {path}")
+                response = await client.post("http://localhost:8000/api/index/watch/remove", json={"path": path})
+                if response.status_code == 200:
+                    yield rx.toast.error(f"Watch Folder eliminado: {path}")
+                else:
+                    detail = response.json().get("detail", response.text)
+                    yield rx.toast.error(f"Error: {detail}")
+        except Exception as e:
+            yield rx.toast.error(str(e))
+        await self.load_watch_status()
+        await self.load_documents()
+
+    async def toggle_all_watchers(self):
+        """Atajo global para pausar/reanudar todas las rutas."""
+        endpoint = "pause-all" if self.watch_running else "resume-all"
+        try:
+            async with httpx.AsyncClient(timeout=30.0) as client:
+                response = await client.post(f"http://localhost:8000/api/index/watch/{endpoint}")
+                if response.status_code == 200:
+                    if endpoint == "pause-all":
+                        yield rx.toast.info("Vigilancia pausada en todas las carpetas.")
+                    else:
+                        yield rx.toast.success("Vigilancia reanudada en todas las carpetas.")
+                else:
+                    detail = response.json().get("detail", response.text)
+                    yield rx.toast.error(f"Error: {detail}")
         except Exception as e:
             yield rx.toast.error(str(e))
         await self.load_watch_status()
@@ -153,15 +246,14 @@ class State(rx.State):
                         if watch_resp.status_code == 200:
                             data = watch_resp.json()
                             self.watch_running = data.get("running", False)
-                            self.watch_folders = data.get("paths", [])
+                            self.watch_folders = data.get("folders", [])
                     except Exception:
                         pass
             yield
 
     async def stop_watcher(self, path: str):
-        # Mantenemos este por compatibilidad si se usa en otros sitios, 
-        # pero ahora preferimos untrack/unindex/remove
-        await self.untrack_watcher(path)
+        # Compatibilidad hacia atrás.
+        await self.pause_watcher(path)
 
     async def delete_document(self, source: str):
         """Elimina un documento del índice y recarga la lista."""

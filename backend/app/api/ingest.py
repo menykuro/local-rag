@@ -22,7 +22,8 @@ async def ingest_documents(files: List[UploadFile] = File(...)):
             tmp_path = tmp.name
 
         try:
-            result = process_file(tmp_path)
+            source_name = (f.filename or os.path.basename(tmp_path)).strip()
+            result = process_file(tmp_path, source=f"upload::{source_name}")
             # Reemplazar el nombre temporal por el nombre original
             result['filename'] = f.filename
             results.append(result)

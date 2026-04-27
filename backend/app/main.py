@@ -12,9 +12,11 @@ async def lifespan(app: FastAPI):
     # ── Startup ──────────────────────────────────────────────────────────────
     persisted_paths = get_watch_folders()
     if persisted_paths:
-        logging.info(f"[Startup] Reanudando {len(persisted_paths)} Watch Folder(s)...")
-        for path in persisted_paths:
-            watcher_module.instance.start(path)
+        logging.info(f"[Startup] Procesando {len(persisted_paths)} Watch Folder(s) persistidas...")
+        for item in persisted_paths:
+            path = item['path']
+            if item.get('active', True):
+                watcher_module.instance.start(path, recursive=item.get('recursive', True))
     else:
         logging.info("[Startup] No hay Watch Folders configuradas.")
 
