@@ -113,6 +113,13 @@ reflex run
 
 Place a GGUF model file in `data/models/`. The default config expects `Qwen3.5-0.8B-BF16.gguf`. You can change the model path in `backend/app/core/config.py`.
 
+### 4. Run Tests
+
+```powershell
+pip install -r backend\requirements.txt
+python -m pytest backend\tests -q
+```
+
 ## ⚙️ Configuration
 
 All settings are centralized in [`backend/app/core/config.py`](backend/app/core/config.py):
@@ -173,7 +180,7 @@ DuckDuckGo may temporarily block automated requests (rate limiting). The system 
 - [x] Document management panel (view, delete, re-index individual files)
 - [x] New conversation / chat reset from the UI
 - [x] Watch folder for automatic ingestion
-- [ ] Unit and integration tests
+- [x] Unit and integration tests
 - [ ] Persistent chat history
 - [ ] Migration from `duckduckgo-search` to `ddgs`
 
