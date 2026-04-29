@@ -1,3 +1,5 @@
+"""Fixtures de pruebas para backend API y componentes core."""
+
 import copy
 import sys
 import types

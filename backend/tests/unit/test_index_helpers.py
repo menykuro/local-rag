@@ -1,3 +1,5 @@
+"""Pruebas unitarias de helpers de rutas para watch folders."""
+
 def test_is_source_inside_folder_avoids_prefix_false_positive():
     from app.api.index import _is_source_inside_folder
 

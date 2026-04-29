@@ -1,3 +1,5 @@
+"""Pruebas de integracion de gestion de indice y ciclo de watch folders."""
+
 import json
 
 

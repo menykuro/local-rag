@@ -23,11 +23,21 @@ class State(rx.State):
     mode: str = "rag"
     model: str = "qwen-3.5-0.8b"
     documents: list[dict[str, str]] = []
-    documents_accordion_value: str = "documents"
-    watch_accordion_value: str = "watch"
+    active_sidebar_section: str = "watch"
     # Watch folder
     watch_folders: list[dict] = []
     watch_running: bool = False
+    system_stats: dict = {
+        "process_cpu_percent": 0.0,
+        "process_memory_mb": 0.0,
+        "process_memory_percent": 0.0,
+        "system_cpu_percent": 0.0,
+        "system_memory_percent": 0.0,
+        "disk_percent": 0.0,
+        "threads": 0,
+    }
+    system_stats_history: list[dict] = []
+    system_chart_data: list[dict[str, float | int]] = []
     new_watch_path: str = ""
     delete_document_modal_open: bool = False
     remove_watch_modal_open: bool = False
@@ -35,20 +45,16 @@ class State(rx.State):
     pending_watch_path: str = ""
 
     def toggle_documents_accordion(self, value: str | list[str]):
-        """Actualiza el estado del item abierto del acordeón."""
-        self.documents_accordion_value = value if isinstance(value, str) else (value[0] if value else "")
+        self.active_sidebar_section = "documents"
 
     def toggle_documents_section(self):
-        """Alterna abrir/cerrar la sección de documentos."""
-        self.documents_accordion_value = "" if self.documents_accordion_value == "documents" else "documents"
+        self.active_sidebar_section = "documents"
 
     def toggle_watch_accordion(self, value: str | list[str]):
-        """Actualiza el estado del acordeón de Watch Folder."""
-        self.watch_accordion_value = value if isinstance(value, str) else (value[0] if value else "")
+        self.active_sidebar_section = "watch"
 
     def toggle_watch_section(self):
-        """Alterna abrir/cerrar la sección de watch folder."""
-        self.watch_accordion_value = "" if self.watch_accordion_value == "watch" else "watch"
+        self.active_sidebar_section = "watch"
 
     def reset_chat(self):
         """Reinicia el historial de chat a su estado inicial."""
@@ -112,6 +118,33 @@ class State(rx.State):
                     data = response.json()
                     self.watch_running = data.get("running", False)
                     self.watch_folders = data.get("folders", [])
+        except Exception:
+            pass
+
+    def _push_system_stats_sample(self, sample: dict):
+        """Guarda muestra de consumo manteniendo las ultimas 5 lecturas."""
+        self.system_stats = sample
+        history = list(self.system_stats_history)
+        history.append(sample)
+        self.system_stats_history = history[-5:]
+        self.system_chart_data = [
+            {
+                "sample": idx + 1,
+                "cpu_proc": float(item.get("process_cpu_percent", 0.0)),
+                "ram_proc": float(item.get("process_memory_percent", 0.0)),
+                "cpu_system": float(item.get("system_cpu_percent", 0.0)),
+                "ram_system": float(item.get("system_memory_percent", 0.0)),
+            }
+            for idx, item in enumerate(self.system_stats_history)
+        ]
+
+    async def load_system_stats(self):
+        """Carga metricas de consumo del backend."""
+        try:
+            async with httpx.AsyncClient(timeout=10.0) as client:
+                response = await client.get("http://localhost:8000/api/stats/system")
+                if response.status_code == 200:
+                    self._push_system_stats_sample(response.json())
         except Exception:
             pass
 
@@ -240,6 +273,7 @@ class State(rx.State):
                     try:
                         doc_resp = await client.get("http://localhost:8000/api/index/documents")
                         watch_resp = await client.get("http://localhost:8000/api/index/watch/status")
+                        system_resp = await client.get("http://localhost:8000/api/stats/system")
                         
                         if doc_resp.status_code == 200:
                             self.documents = doc_resp.json()
@@ -247,6 +281,8 @@ class State(rx.State):
                             data = watch_resp.json()
                             self.watch_running = data.get("running", False)
                             self.watch_folders = data.get("folders", [])
+                        if system_resp.status_code == 200:
+                            self._push_system_stats_sample(system_resp.json())
                     except Exception:
                         pass
             yield
@@ -348,3 +384,4 @@ class State(rx.State):
 
         self.is_processing = False
         yield
+

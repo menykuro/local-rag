@@ -1,7 +1,11 @@
-﻿from fastapi import APIRouter
+"""Endpoints de salud del servicio."""
+
+from fastapi import APIRouter
 
 router = APIRouter()
 
-@router.post('/rag')
+
+@router.post("/rag")
 async def rag(query: str):
-    return {'answer': 'RAG response placeholder', 'query': query}
+    """Endpoint de prueba historico para validar el enrutado."""
+    return {"answer": "RAG response placeholder", "query": query}

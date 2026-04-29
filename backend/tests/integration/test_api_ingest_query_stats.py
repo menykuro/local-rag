@@ -1,3 +1,5 @@
+"""Pruebas de integracion para endpoints de ingesta, query y stats."""
+
 from io import BytesIO
 
 

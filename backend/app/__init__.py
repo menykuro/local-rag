@@ -1,1 +1,1 @@
-﻿# backend app package
+"""Paquete principal del backend FastAPI."""

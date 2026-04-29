@@ -1,3 +1,5 @@
+"""Pruebas unitarias del algoritmo de chunking."""
+
 from app.core.ingest import chunk_text
 
 

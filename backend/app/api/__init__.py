@@ -1,1 +1,1 @@
-﻿# API package
+"""Paquete de routers HTTP del backend."""

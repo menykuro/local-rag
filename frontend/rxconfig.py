@@ -1,3 +1,5 @@
+"""Configuracion de Reflex para la aplicacion frontend."""
+
 import reflex as rx
 
 config = rx.Config(

@@ -1,34 +1,35 @@
-"""Endpoint de ingesta documental vía upload HTTP."""
-import logging
+"""Endpoint de subida e indexacion de documentos."""
+
 import os
 import tempfile
-from fastapi import APIRouter, UploadFile, File
 from typing import List
+
+from fastapi import APIRouter, File, UploadFile
+
 from app.core.ingest_file import process_file
 
 router = APIRouter()
 
-@router.post('')
+
+@router.post("")
 async def ingest_documents(files: List[UploadFile] = File(...)):
+    """Procesa archivos subidos y devuelve resumen de chunks indexados."""
     results = []
     total_chunks = 0
-    for f in files:
-        raw_content = await f.read()
-
-        # Guardar temporalmente en disco para reutilizar process_file
-        ext = os.path.splitext(f.filename)[1] if f.filename else '.tmp'
-        with tempfile.NamedTemporaryFile(delete=False, suffix=ext) as tmp:
-            tmp.write(raw_content)
-            tmp_path = tmp.name
+    for file_obj in files:
+        raw_content = await file_obj.read()
+        extension = os.path.splitext(file_obj.filename)[1] if file_obj.filename else ".tmp"
+        with tempfile.NamedTemporaryFile(delete=False, suffix=extension) as tmp_file:
+            tmp_file.write(raw_content)
+            tmp_path = tmp_file.name
 
         try:
-            source_name = (f.filename or os.path.basename(tmp_path)).strip()
+            source_name = (file_obj.filename or os.path.basename(tmp_path)).strip()
             result = process_file(tmp_path, source=f"upload::{source_name}")
-            # Reemplazar el nombre temporal por el nombre original
-            result['filename'] = f.filename
+            result["filename"] = file_obj.filename
             results.append(result)
-            total_chunks += result.get('chunks', 0)
+            total_chunks += result.get("chunks", 0)
         finally:
             os.unlink(tmp_path)
 
-    return {'status': 'indexed', 'documents': results, 'indexed_chunks': total_chunks}
+    return {"status": "indexed", "documents": results, "indexed_chunks": total_chunks}
